@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+
+<head>
+  <title>DCL Loader</title>
+<style>
+body {
+  margin: 0;
+}
+canvas {
+  outline: none;
+}
+</style>
+</head>
+<body>
+<script type=module>
+import * as THREE from 'https://app.webaverse.com/three.module.js';
+import {GLTFLoader} from 'https://app.webaverse.com/GLTFLoader.js';
+import {OrbitControls} from 'https://app.webaverse.com/OrbitControls.js';
+
+const _getCoord = async (x, z) => {
+  const res = await fetch('https://peer-ec1.decentraland.org/content/entities/scene?pointer=' + [x,z].join(','));
+  const j = await res.json();
+  return j[0];
+};
+
+(async () => {
+  const coord = await _getCoord(21, 34);
+  const {metadata: {main}, content} = coord;
+  console.log('loaded', coord);
+  const mainFile = content.find(f => f.file === main);
+  const {hash} = mainFile;
+
+  const worker = new Worker('./worker.js?hash=' + hash);
+  worker.onmessage = async e => {
+    const j = JSON.parse(e.data);
+    worker.terminate();
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    window.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(90, window.innerWidth/window.innerHeight, 0.1, 300);
+    camera.position.set(0, 10, -10);
+    camera.lookAt(new THREE.Vector3());
+
+    const ambientLight = new THREE.AmbientLight(0x808080);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 1);
+    directionalLight.position.set(1, 2, 3);
+    scene.add(directionalLight);
+
+    const orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.screenSpacePanning = true;
+    orbitControls.enableMiddleZoom = false;
+    // orbitControls.target.copy(camera.position).add(new THREE.Vector3(0, camera.position.y, -3).applyQuaternion(camera.quaternion));
+    orbitControls.update();
+
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier(url => {
+      const u = (() => {
+        if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q')) {
+          return url;
+        } else {
+          const u = 'unity_assets/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
+          const file = content.find(f => f.file === u);
+          if (file) {
+            const {hash} = file;
+            return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
+          } else {
+            console.warn('content not found', url);
+            return url;
+          }
+        }
+      })();
+      // console.log('load', [url, u]);
+      return u;
+    });
+    const _loadGltf = async u => {
+      let o = await new Promise((accept, reject) => {
+        new GLTFLoader(manager).load(u, accept, function onprogress() {}, reject);
+      });
+      o = o.scene;
+      return o;
+    };
+
+    const entities = {};
+    const components = {};
+
+    for (const entry of j.result) {
+      const {method, args} = entry;
+      // console.log('got method', method, args);
+      switch (method) {
+        case 'addEntity': {
+          const [id] = args;
+          const entity = new THREE.Object3D();
+          scene.add(entity);
+          entities[id] = entity;
+          break;
+        }
+        case 'setParent': {
+          const [id, parentId] = args;
+          const entity = entities[id];
+          const parent = entities[parentId];
+          parent.add(entity);
+          break;
+        }
+        case 'updateEntityComponent': {
+          const [id, template, id2, s] = args;
+          const entity = entities[id];
+          switch (template) {
+            case 'engine.transform': {
+              const j = JSON.parse(s);
+              const {position, rotation, scale} = j;
+              entity.position.copy(position);
+              entity.quaternion.copy(rotation);
+              entity.scale.copy(scale);
+              break;
+            }
+            default: {
+              console.warn('unknown component template', template);
+              break;
+            }
+          }
+          break;
+        }
+        case 'componentCreated': {
+          const [id, template, id2] = args;
+          const component = {
+            template,
+          };
+          components[id] = component;
+          break;
+        }
+        case 'componentUpdated': {
+          const [id, s] = args;
+          const j = JSON.parse(s);
+          const component = components[id];
+          component.data = j;
+          break;
+        }
+        case 'attachEntityComponent': {
+          const [entityId, template, componentId] = args;
+          const entity = entities[entityId];
+          const component = components[componentId];
+          switch (template) {
+            case 'engine.shape': {
+              const {data} = component;
+              const {src} = data;
+              if (src) {
+                if (/\.(?:glb|gltf)$/.test(src)) {
+                  const srcFile = content.find(f => f.file === src);
+                  if (srcFile) {
+                    const {hash} = srcFile;
+                    try {
+                      const model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
+                      model.traverse(o => {
+                        if (o.isMesh && /_collider/.test(o.name)) {
+                          o.visible = false;
+                        }
+                      });
+                      entity.add(model);
+                    } catch (err) {
+                      console.warn(err);
+                    }
+                  } else {
+                    console.warn('content file not found', srcFile);
+                  }
+                } else {
+                  console.warn('illegal engine file', src);
+                }
+              } else {
+                console.warn('shape with no src', entity, component);
+              }
+              break;
+            }
+            default: {
+              console.warn('unknown component template', template);
+              break;
+            }
+          }
+          break;
+        }
+        default: {
+          console.warn('unknown method', method);
+          break;
+        }
+      }
+    }
+
+    console.log('rendering...');
+
+    renderer.setAnimationLoop(() => {
+      orbitControls.update();
+      renderer.render(scene, camera);
+    });
+    window.addEventListener('resize', e => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+    });
+  };
+})();
+</script>
+</body>
+
+</html>
