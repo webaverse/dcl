@@ -62,7 +62,7 @@ const _getCoord = async (x, z) => {
 
     const manager = new THREE.LoadingManager();
     manager.setURLModifier(url => {
-      const u = (() => {
+      // const u = (() => {
         if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q')) {
           return url;
         } else {
@@ -76,9 +76,9 @@ const _getCoord = async (x, z) => {
             return url;
           }
         }
-      })();
+      // })();
       // console.log('load', [url, u]);
-      return u;
+      // return u;
     });
     const _loadGltf = async u => {
       let o = await new Promise((accept, reject) => {
@@ -98,6 +98,7 @@ const _getCoord = async (x, z) => {
         case 'addEntity': {
           const [id] = args;
           const entity = new THREE.Object3D();
+          entity.components = [];
           scene.add(entity);
           entities[id] = entity;
           break;
@@ -116,8 +117,19 @@ const _getCoord = async (x, z) => {
             case 'engine.transform': {
               const j = JSON.parse(s);
               const {position, rotation, scale} = j;
+              // console.log('got transform', j);
+              /* const {y, z} = position;
+              position.z = y;
+              position.y = z; */
               entity.position.copy(position);
-              entity.quaternion.copy(rotation);
+              if (position.y < -1) {
+                // console.log('less than', id);
+              }
+              entity.quaternion.copy(rotation)
+                // .multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1)));
+              if (!entity.quaternion.equals(new THREE.Quaternion())) {
+                // console.log('nonzero', entity.quaternion.toArray());
+              }
               entity.scale.copy(scale);
               break;
             }
@@ -149,33 +161,7 @@ const _getCoord = async (x, z) => {
           const component = components[componentId];
           switch (template) {
             case 'engine.shape': {
-              const {data} = component;
-              const {src} = data;
-              if (src) {
-                if (/\.(?:glb|gltf)$/.test(src)) {
-                  const srcFile = content.find(f => f.file === src);
-                  if (srcFile) {
-                    const {hash} = srcFile;
-                    try {
-                      const model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
-                      model.traverse(o => {
-                        if (o.isMesh && /_collider/.test(o.name)) {
-                          o.visible = false;
-                        }
-                      });
-                      entity.add(model);
-                    } catch (err) {
-                      console.warn(err);
-                    }
-                  } else {
-                    console.warn('content file not found', srcFile);
-                  }
-                } else {
-                  console.warn('illegal engine file', src);
-                }
-              } else {
-                console.warn('shape with no src', entity, component);
-              }
+              entity.components.push(component);
               break;
             }
             default: {
@@ -188,6 +174,41 @@ const _getCoord = async (x, z) => {
         default: {
           console.warn('unknown method', method);
           break;
+        }
+      }
+    }
+
+    for (const id in entities) {
+      const entity = entities[id];
+      for (const component of entity.components) {
+        const {data} = component;
+        const {src} = data;
+        if (src) {
+          if (/\.(?:glb|gltf)$/.test(src)) {
+            const srcFile = content.find(f => f.file === src);
+            if (srcFile) {
+              const {hash} = srcFile;
+              try {
+                const model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
+                // console.log('got model', model);
+                // model.rotation.x = -Math.PI/2
+                model.traverse(o => {
+                  if (o.isMesh && /_collider/.test(o.name)) {
+                    o.visible = false;
+                  }
+                });
+                entity.add(model);
+              } catch (err) {
+                console.warn(err);
+              }
+            } else {
+              console.warn('content file not found', srcFile);
+            }
+          } else {
+            console.warn('illegal engine file', src);
+          }
+        } else {
+          console.warn('shape with no src', entity, component);
         }
       }
     }

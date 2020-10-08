@@ -46,24 +46,50 @@ const {hash} = q;
 
 const res = await fetch('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
 const text = await res.text();
+const timeoutQueue = [];
 globalThis.setTimeout = fn => {
-  try {
+  timeoutQueue.push(fn);
+  /* try {
     fn();
   } catch(err) {
     console.warn(err);
-  }
+  } */
 };
 globalThis.setInterval = fn => {
-  try {
+  timeoutQueue.push(fn);
+  /* try {
     fn();
   } catch(err) {
     console.warn(err);
-  }
+  } */
 };
 eval(text);
+['onStart', 'onUpdate'].forEach(m => {
+  for (const entry of result) {
+    const {method, args} = entry;
+    if (method === m) {
+      const [fn] = args;
+      console.log('run', m, fn);
+      fn();
+    }
+  }
+});
+for (const fn of timeoutQueue) {
+  fn();
+}
+/* ['onUpdate'].forEach(m => {
+  for (const entry of result) {
+    const {method, args} = entry;
+    if (method === m) {
+      const [fn] = args;
+      console.log('run', m, fn);
+      fn();
+    }
+  }
+}); */
 loaded = true;
 
-// console.log('done');
+console.log('done');
 
 self.postMessage(JSON.stringify({
   result,
