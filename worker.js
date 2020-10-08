@@ -77,16 +77,23 @@ eval(text);
 for (const fn of timeoutQueue) {
   fn();
 }
-/* ['onUpdate'].forEach(m => {
-  for (const entry of result) {
-    const {method, args} = entry;
-    if (method === m) {
-      const [fn] = args;
-      console.log('run', m, fn);
-      fn();
-    }
+timeoutQueue.length = 0;
+/* for (let i = 0; i < 10; i++) {
+  for (const fn of timeoutQueue) {
+    fn();
   }
-}); */
+  timeoutQueue.length = 0;
+  ['onUpdate'].forEach(m => {
+    for (const entry of result) {
+      const {method, args} = entry;
+      if (method === m) {
+        const [fn] = args;
+        console.log('run', m, fn);
+        fn();
+      }
+    }
+  });
+} */
 loaded = true;
 
 console.log('done');

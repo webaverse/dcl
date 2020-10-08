@@ -17,6 +17,12 @@ canvas {
 import * as THREE from 'https://app.webaverse.com/three.module.js';
 import {GLTFLoader} from 'https://app.webaverse.com/GLTFLoader.js';
 import {OrbitControls} from 'https://app.webaverse.com/OrbitControls.js';
+import {getBasisTransform, axesToAsciiImage, stringToAxes} from './basis.js';
+
+const inversionMatrix = new THREE.Matrix4();
+const unityTransform = getBasisTransform('-X+Y+Z', '+X+Y+Z', inversionMatrix);
+// console.log('inversion', inversionMatrix);
+// const inversionMatrix = new THREE.Matrix4().fromArray([-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 const _getCoord = async (x, z) => {
   const res = await fetch('https://peer-ec1.decentraland.org/content/entities/scene?pointer=' + [x,z].join(','));
@@ -84,7 +90,7 @@ const _getCoord = async (x, z) => {
       let o = await new Promise((accept, reject) => {
         new GLTFLoader(manager).load(u, accept, function onprogress() {}, reject);
       });
-      o = o.scene;
+      // o = o.scene;
       return o;
     };
 
@@ -93,13 +99,15 @@ const _getCoord = async (x, z) => {
 
     for (const entry of j.result) {
       const {method, args} = entry;
-      // console.log('got method', method, args);
+      console.log('got method', method, args);
       switch (method) {
         case 'addEntity': {
           const [id] = args;
           const entity = new THREE.Object3D();
           entity.components = [];
-          scene.add(entity);
+          if (id === '0') {
+            scene.add(entity);
+          }
           entities[id] = entity;
           break;
         }
@@ -115,22 +123,45 @@ const _getCoord = async (x, z) => {
           const entity = entities[id];
           switch (template) {
             case 'engine.transform': {
+              // if (id === 'Eq') continue;
               const j = JSON.parse(s);
               const {position, rotation, scale} = j;
               // console.log('got transform', j);
               /* const {y, z} = position;
               position.z = y;
               position.y = z; */
+              // position.x *= -1;
+              // position.z *= -1;
+              // position.y *= -1;
+              // scale.y *= -1;
               entity.position.copy(position);
-              if (position.y < -1) {
+              /* if (position.y < 0) {
+                position.y *= -1;
+                scale.y *= -1;
                 // console.log('less than', id);
-              }
+              } */
               entity.quaternion.copy(rotation)
+                // .conjugate()
+                // .normalize()
                 // .multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1)));
-              if (!entity.quaternion.equals(new THREE.Quaternion())) {
-                // console.log('nonzero', entity.quaternion.toArray());
-              }
+              // convert Quaternion from Left-handed coordinate system to Right-handed
+              /* {
+                var q = new THREE.Quaternion(-rotation.x, rotation.y, rotation.z, -rotation.w);
+
+                var v = new THREE.Euler().setFromQuaternion(q);
+
+                v.y += Math.PI; // Y is 180 degrees off
+
+                v.z *= -1; // flip Z
+
+                entity.quaternion.set(rotation.z, rotation.w, rotation.x, rotation.y);
+              } */
               entity.scale.copy(scale);
+              // entity.updateMatrixWorld();
+              entity.matrix
+                .compose(entity.position, entity.quaternion, entity.scale)
+                // .premultiply(inversionMatrix)
+                .decompose(entity.position, entity.quaternion, entity.scale);
               break;
             }
             default: {
@@ -180,18 +211,28 @@ const _getCoord = async (x, z) => {
 
     for (const id in entities) {
       const entity = entities[id];
+      /* if (entity.components.length === 0) {
+        entity.position.set(0, 0, 0);
+        entity.quaternion.set(0, 0, 0, 1);
+        entity.scale.set(1, 1, 1);
+      } */
       for (const component of entity.components) {
         const {data} = component;
-        const {src} = data;
-        if (src) {
+        const {src, visible} = data;
+        if (src && visible) {
           if (/\.(?:glb|gltf)$/.test(src)) {
             const srcFile = content.find(f => f.file === src);
             if (srcFile) {
               const {hash} = srcFile;
               try {
-                const model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
-                // console.log('got model', model);
-                // model.rotation.x = -Math.PI/2
+                let model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
+                console.log('got model', id, model);
+                // model.rotation.z += Math.PI;
+                model = model.scene;
+                // const box = new THREE.Box3().setFromObject(model);
+                // model.position.sub(box.getCenter(new THREE.Vector3()));
+                model.matrix.copy(inversionMatrix)
+                  .decompose(model.position, model.quaternion, model.scale);
                 model.traverse(o => {
                   if (o.isMesh && /_collider/.test(o.name)) {
                     o.visible = false;
