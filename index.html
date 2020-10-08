@@ -111,7 +111,7 @@ const _getCoord = async (x, z) => {
 
     for (const entry of j.result) {
       const {method, args} = entry;
-      // console.log('got method', method, args);
+      console.log('got method', method, args);
       switch (method) {
         case 'addEntity': {
           const [id] = args;
@@ -238,7 +238,7 @@ const _getCoord = async (x, z) => {
               const {hash} = srcFile;
               try {
                 let model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
-                // console.log('got model', id, model);
+                console.log('got model', id, model);
                 // model.rotation.z += Math.PI;
                 model = model.scene;
                 // const box = new THREE.Box3().setFromObject(model);
