@@ -106,24 +106,6 @@ const COLOR_BY_TYPE = {
     return canvas;
   };
   const tilesCanvas = await _getTilesCanvas();
-
-  const x = 21;
-  const z = 34;
-  const coord = await _getCoord(x, z);
-  let {metadata: {main}, content, pointers} = coord;
-  console.log('loaded', coord);
-  const mainFile = content.find(f => f.file === main);
-  const {hash} = mainFile;
-  pointers = _parsePointers(pointers);
-  const maxCoord = (() => {
-    const result = [-Infinity, -Infinity];
-    for (const [x, z] of pointers) {
-      result[0] = Math.max(x, result[0]);
-      result[1] = Math.max(z, result[1]);
-    }
-    return result;
-  })();
-  console.log('max coord', maxCoord);
   
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -176,9 +158,6 @@ const COLOR_BY_TYPE = {
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
-    mesh.position.x = (maxCoord[0]+0.5)*16;
-    mesh.position.y = 0.5;
-    mesh.position.z = -(maxCoord[1]+0.5)*16;
     return mesh;
   })();
   scene.add(cubeMesh);
@@ -197,73 +176,40 @@ const COLOR_BY_TYPE = {
     transparent: true,
     opacity: 0.5,
   });
-  
-  class Tracker {
-    constructor() {
-      this.lastCoord = new THREE.Vector2();
-      this.meshes = [];
-      this.running = false;
-      this.queue = null;
-    }
-    async update(position) {
-      const currentCoord = new THREE.Vector2(Math.floor((position.x+8)/16), Math.floor((position.z+8)/16));
-      if (!currentCoord.equals(this.lastCoord)) {
-        // console.log('neq', currentCoord.toArray(), this.lastCoord.toArray());
-        if (!this.running) {
-          this.running = true;
-        
-          for (const mesh of this.meshes) {
-            scene.remove(mesh);
-          }
-          this.meshes.length = 0;
-          
-          const coord = await _getCoord(currentCoord.x, -currentCoord.y);
-          let pointers;
-          if (coord) {
-            pointers = _parsePointers(coord.pointers);
-          } else {
-            pointers = [[currentCoord.x, -currentCoord.y]];
-          }
-          for (const pointer of pointers) {
-            const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
-            mesh.position.x = 16*pointer[0]-8;
-            mesh.position.y = 1;
-            mesh.position.z = -16*pointer[1]-8;
-            mesh.frustumCulled = false;
-            scene.add(mesh);
-            // window.mesh = mesh;
-            this.meshes.push(mesh);
-          }
 
-          this.running = false;
-          if (this.queue) {
-            const position = this.queue;
-            this.queue = null
-            this.update(position);
-          }
-        } else {
-          this.queue = position.clone();
-        }
-        this.lastCoord.copy(currentCoord);
+  const _loadCoord = (x, z, coord) => {
+    console.log('load coord', coord);
+    const object = new THREE.Object3D();
+
+    let {metadata: {main}, content, pointers} = coord;
+    // console.log('loaded', coord);
+    const mainFile = content.find(f => f.file === main);
+    const {hash} = mainFile;
+    pointers = _parsePointers(pointers);
+    const maxCoord = (() => {
+      const result = [-Infinity, -Infinity];
+      for (const [x, z] of pointers) {
+        result[0] = Math.max(x, result[0]);
+        result[1] = Math.max(z, result[1]);
       }
-    }
-  }
-  const tracker = new Tracker();
-  
-  renderer.setAnimationLoop(() => {
-    orbitControls.update();
-
-    cubeMesh.position.copy(orbitControls.target);
-    tracker.update(orbitControls.target);
-
-    renderer.render(scene, camera);
-  });
-
-  const worker = new Worker('./worker.js?hash=' + hash);
-  worker.onmessage = async e => {
-    const j = JSON.parse(e.data);
-    worker.terminate();
-
+      return result;
+    })();
+    console.log('max coord', maxCoord);
+    
+    const cubeMesh = (() => {
+      const geometry = new THREE.BoxBufferGeometry(1, 1);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xFFFF00,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.frustumCulled = false;
+      mesh.position.x = (maxCoord[0]+0.5)*16;
+      mesh.position.y = 0.5;
+      mesh.position.z = -(maxCoord[1]+0.5)*16;
+      return mesh;
+    })();
+    object.add(cubeMesh);
+    
     const manager = new THREE.LoadingManager();
     manager.setURLModifier(url => {
       // const u = (() => {
@@ -302,169 +248,302 @@ const COLOR_BY_TYPE = {
         return entry.clone();
       };
     })();
+    
+    let live = true;
+    const promise = (async() => {
+      const j = await new Promise((accept, reject) => {
+        const worker = new Worker('./worker.js?hash=' + hash);
+        worker.onmessage = async e => {
+          worker.terminate();
+          const j = JSON.parse(e.data);
+          accept(j);
+        };
+        worker.onerror = reject;
+      });
+      console.log('got worker json', j, live);
+      if (!live) return;
 
-    const entities = {};
-    const components = {};
+      const entities = {};
+      const components = {};
 
-    for (const entry of j.result) {
-      const {method, args} = entry;
-      // console.log('got method', method, args);
-      switch (method) {
-        case 'addEntity': {
-          const [id] = args;
-          const entity = new THREE.Object3D();
-          entity.components = [];
-          if (id === '0') {
-            entity.matrix.copy(inversionMatrix)
-             .decompose(entity.position, entity.quaternion, entity.scale);
-            entity.position.x = (maxCoord[0]+0.5)*16;
-            entity.position.z = -(maxCoord[1]+0.5)*16;
-            scene.add(entity);
+      const _makeEntity = () => {
+        const entity = new THREE.Object3D();
+        entity.components = [];
+        return entity;
+      };
+      ['PlayerEntityReference'].forEach(name => {
+        const entity = new THREE.Object3D();
+        entities[name] = _makeEntity();
+      });
+
+      for (const entry of j.result) {
+        const {method, args} = entry;
+        // console.log('got method', method, args);
+        switch (method) {
+          case 'addEntity': {
+            const [id] = args;
+            const entity = _makeEntity();
+            if (id === '0') {
+              entity.matrix.copy(inversionMatrix)
+               .decompose(entity.position, entity.quaternion, entity.scale);
+              entity.position.x = (maxCoord[0]+0.5)*16;
+              entity.position.z = -(maxCoord[1]+0.5)*16;
+              object.add(entity);
+              window.rootEntity = entity;
+            }
+            entities[id] = entity;
+            break;
           }
-          entities[id] = entity;
-          break;
-        }
-        case 'setParent': {
-          const [id, parentId] = args;
-          const entity = entities[id];
-          const parent = entities[parentId];
-          parent.add(entity);
-          break;
-        }
-        case 'updateEntityComponent': {
-          const [id, template, id2, s] = args;
-          const entity = entities[id];
-          switch (template) {
-            case 'engine.transform': {
-              // if (id === 'Eq') continue;
-              const j = JSON.parse(s);
-              const {position, rotation, scale} = j;
-              // console.log('got transform', j);
-              /* const {y, z} = position;
-              position.z = y;
-              position.y = z; */
-              // position.x *= -1;
-              // position.z *= -1;
-              // position.y *= -1;
-              // scale.y *= -1;
-              entity.position.copy(position);
-              /* if (position.y < 0) {
-                position.y *= -1;
-                scale.y *= -1;
-                // console.log('less than', id);
-              } */
-              entity.quaternion.copy(rotation)
-                // .conjugate()
-                // .normalize()
-                // .multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1)));
-              // convert Quaternion from Left-handed coordinate system to Right-handed
-              /* {
-                var q = new THREE.Quaternion(-rotation.x, rotation.y, rotation.z, -rotation.w);
-
-                var v = new THREE.Euler().setFromQuaternion(q);
-
-                v.y += Math.PI; // Y is 180 degrees off
-
-                v.z *= -1; // flip Z
-
-                entity.quaternion.set(rotation.z, rotation.w, rotation.x, rotation.y);
-              } */
-              entity.scale.copy(scale);
-              // entity.updateMatrixWorld();
-              /* entity.matrix
-                .compose(entity.position, entity.quaternion, entity.scale)
-                // .premultiply(inversionMatrix)
-                .decompose(entity.position, entity.quaternion, entity.scale); */
-              break;
+          case 'setParent': {
+            const [id, parentId] = args;
+            const entity = entities[id];
+            const parent = entities[parentId];
+            if (!parent) {
+              debugger;
             }
-            default: {
-              console.warn('unknown component template', template);
-              break;
-            }
+            parent.add(entity);
+            break;
           }
-          break;
-        }
-        case 'componentCreated': {
-          const [id, template, id2] = args;
-          const component = {
-            template,
-          };
-          components[id] = component;
-          break;
-        }
-        case 'componentUpdated': {
-          const [id, s] = args;
-          const j = JSON.parse(s);
-          const component = components[id];
-          component.data = j;
-          break;
-        }
-        case 'attachEntityComponent': {
-          const [entityId, template, componentId] = args;
-          const entity = entities[entityId];
-          const component = components[componentId];
-          switch (template) {
-            case 'engine.shape': {
-              entity.components.push(component);
-              break;
+          case 'updateEntityComponent': {
+            const [id, template, id2, s] = args;
+            const entity = entities[id];
+            switch (template) {
+              case 'engine.transform': {
+                // if (id === 'Eq') continue;
+                const j = JSON.parse(s);
+                const {position, rotation, scale} = j;
+                // console.log('got transform', j);
+                /* const {y, z} = position;
+                position.z = y;
+                position.y = z; */
+                // position.x *= -1;
+                // position.z *= -1;
+                // position.y *= -1;
+                // scale.y *= -1;
+                entity.position.copy(position);
+                /* if (position.y < 0) {
+                  position.y *= -1;
+                  scale.y *= -1;
+                  // console.log('less than', id);
+                } */
+                entity.quaternion.copy(rotation)
+                  // .conjugate()
+                  // .normalize()
+                  // .multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1)));
+                // convert Quaternion from Left-handed coordinate system to Right-handed
+                /* {
+                  var q = new THREE.Quaternion(-rotation.x, rotation.y, rotation.z, -rotation.w);
+
+                  var v = new THREE.Euler().setFromQuaternion(q);
+
+                  v.y += Math.PI; // Y is 180 degrees off
+
+                  v.z *= -1; // flip Z
+
+                  entity.quaternion.set(rotation.z, rotation.w, rotation.x, rotation.y);
+                } */
+                entity.scale.copy(scale);
+                // entity.updateMatrixWorld();
+                /* entity.matrix
+                  .compose(entity.position, entity.quaternion, entity.scale)
+                  // .premultiply(inversionMatrix)
+                  .decompose(entity.position, entity.quaternion, entity.scale); */
+                break;
+              }
+              default: {
+                console.warn('unknown component template', template);
+                break;
+              }
             }
-            default: {
-              console.warn('unknown component template', template);
-              break;
-            }
+            break;
           }
-          break;
-        }
-        default: {
-          console.warn('unknown method', method);
-          break;
+          case 'componentCreated': {
+            const [id, template, id2] = args;
+            const component = {
+              template,
+            };
+            components[id] = component;
+            break;
+          }
+          case 'componentUpdated': {
+            const [id, s] = args;
+            const j = JSON.parse(s);
+            const component = components[id];
+            component.data = j;
+            break;
+          }
+          case 'attachEntityComponent': {
+            const [entityId, template, componentId] = args;
+            const entity = entities[entityId];
+            const component = components[componentId];
+            switch (template) {
+              case 'engine.shape': {
+                entity.components.push(component);
+                break;
+              }
+              default: {
+                console.warn('unknown component template', template);
+                break;
+              }
+            }
+            break;
+          }
+          default: {
+            console.warn('unknown method', method);
+            break;
+          }
         }
       }
-    }
 
-    for (const id in entities) {
-      const entity = entities[id];
-      /* if (entity.components.length === 0) {
-        entity.position.set(0, 0, 0);
-        entity.quaternion.set(0, 0, 0, 1);
-        entity.scale.set(1, 1, 1);
-      } */
-      for (const component of entity.components) {
-        const {data} = component;
-        const {src, visible} = data;
-        if (src && visible) {
-          if (/\.(?:glb|gltf)$/.test(src)) {
-            const srcFile = content.find(f => f.file === src);
-            if (srcFile) {
-              const {hash} = srcFile;
-              try {
-                let model = await _loadGltfCached('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
-                // console.log('got model', id, model);
-                model.matrix.copy(inversionMatrix)
-                  .decompose(model.position, model.quaternion, model.scale);
-                model.traverse(o => {
-                  if (o.isMesh && /_collider/.test(o.name)) {
-                    o.visible = false;
-                  }
-                });
-                entity.add(model);
-              } catch (err) {
-                console.warn(err);
+      for (const id in entities) {
+        const entity = entities[id];
+        /* if (entity.components.length === 0) {
+          entity.position.set(0, 0, 0);
+          entity.quaternion.set(0, 0, 0, 1);
+          entity.scale.set(1, 1, 1);
+        } */
+        for (const component of entity.components) {
+          const {data} = component;
+          const {src, visible} = data;
+          if (src && visible) {
+            if (/\.(?:glb|gltf)$/.test(src)) {
+              const srcFile = content.find(f => f.file === src);
+              if (srcFile) {
+                const {hash} = srcFile;
+                try {
+                  let model = await _loadGltfCached('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
+                  if (!live) return;
+                  // console.log('got model', hash, model);
+                  
+                  model.matrix.copy(inversionMatrix)
+                    .decompose(model.position, model.quaternion, model.scale);
+                  model.traverse(o => {
+                    if (o.isMesh && /_collider/.test(o.name)) {
+                      o.visible = false;
+                    }
+                  });
+                  entity.add(model);
+                } catch (err) {
+                  console.warn(err);
+                }
+              } else {
+                console.warn('content file not found', srcFile);
               }
             } else {
-              console.warn('content file not found', srcFile);
+              console.warn('illegal engine file', src);
             }
           } else {
-            console.warn('illegal engine file', src);
+            console.warn('shape with no src', entity, component);
           }
-        } else {
-          console.warn('shape with no src', entity, component);
         }
       }
-    }
 
-    console.log('done');
+      console.log('done');
+    })();
+    const cancel = () => {
+      live = false;
+    };
+    return {
+      object,
+      promise,
+      cancel,
+    };
   };
+  
+  class Tracker {
+    constructor() {
+      this.lastCoord = new THREE.Vector2(NaN, NaN);
+      this.meshes = [];
+      this.rootMesh = null;
+      this.running = false;
+      this.queue = null;
+      this.cancel = null;
+    }
+    async update(position) {
+      const currentCoord = new THREE.Vector2(Math.floor((position.x+8)/16), Math.floor((position.z+8)/16));
+      if (!currentCoord.equals(this.lastCoord)) {
+        this.lastCoord.copy(currentCoord);
+        if (this.cancel) {
+          this.cancel();
+          this.cancel = null;
+        }
+        
+        if (!this.running) {
+          this.running = true;
+          console.log('start running');
+        
+          for (const mesh of this.meshes) {
+            scene.remove(mesh);
+          }
+          this.meshes.length = 0;
+          
+          let live = true;
+          this.cancel = () => {
+            console.log('cancel 1');
+            live = false;
+          };
+          
+          const coord = await _getCoord(currentCoord.x, -currentCoord.y);
+          if (live) {
+            let pointers;
+            if (coord) {
+              pointers = _parsePointers(coord.pointers);
+            } else {
+              pointers = [[currentCoord.x, -currentCoord.y]];
+            }
+            for (const pointer of pointers) {
+              const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
+              mesh.position.x = 16*pointer[0]-8;
+              mesh.position.y = 1;
+              mesh.position.z = -16*pointer[1]-8;
+              mesh.frustumCulled = false;
+              scene.add(mesh);
+              this.meshes.push(mesh);
+            }
+            window.pointers = pointers;
+            window.meshes = this.meshes;
+            
+            const o = _loadCoord(currentCoord.x, -currentCoord.y, coord);
+            if (this.rootMesh) {
+              scene.remove(this.rootMesh);
+              this.rootMesh = null;
+            }
+            scene.add(o.object);
+            this.rootMesh = o.object;
+            window.rootMesh = this.rootMesh;
+            this.cancel = () => {
+              console.log('cancel 2');
+              o.cancel();
+            };
+            await o.promise;
+          }
+
+          console.log('stop running');
+          this.running = false;
+          if (this.queue) {
+            console.log('re-queue');
+            const position = this.queue;
+            this.queue = null
+            this.update(position);
+          }
+        } else {
+          this.queue = position.clone();
+        }
+      } /* else {
+        console.log('nothing to do');
+      } */
+    }
+  }
+  const tracker = new Tracker();
+ 
+  renderer.setAnimationLoop(() => {
+    orbitControls.update();
+
+    cubeMesh.position.copy(orbitControls.target);
+    tracker.update(orbitControls.target);
+
+    renderer.render(scene, camera);
+  });
 })();
 </script>
 </body>

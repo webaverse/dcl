@@ -12,6 +12,7 @@ const result = [];
 let loaded = false;
 const _bind = method => function() {
   const args = Array.from(arguments);
+  console.log(method, args);
   if (!loaded) {
     result.push({
       method,
@@ -22,8 +23,38 @@ const _bind = method => function() {
     debugger;
   }
 };
-globalThis.dcl = {};
+globalThis.dcl = {
+  loadModule() {
+    console.log('load module', Array.from(arguments));
+    return Promise.resolve({
+      methods: {
+        getUserData() {
+          console.log('run module getUserData');
+          debugger;
+        },
+        /* callRpc() {
+          console.log('run module callRpc');
+          debugger;
+        }, */
+        getUserPublicKey() {
+          console.log('run module getUserPublicKey');
+          debugger;
+        },
+        getCurrentRealm() {
+          console.log('run module getCurrentRealm');
+          debugger;
+        },
+      },
+    });
+  },
+  callRpc() {
+    return new Promise((accept, reject) => {
+      // nothing
+    });
+  },
+};
 [
+  'log',
   'addEntity',
   'onUpdate',
   'onEvent',
@@ -47,6 +78,7 @@ const {hash} = q;
 const res = await fetch('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
 const text = await res.text();
 const timeoutQueue = [];
+const {setTimeout} = globalThis;
 globalThis.setTimeout = fn => {
   timeoutQueue.push(fn);
   /* try {
@@ -63,7 +95,13 @@ globalThis.setInterval = fn => {
     console.warn(err);
   } */
 };
+// console.log('run start 1', text);
 eval(text);
+// console.log('run start 2');
+await new Promise((accept, reject) => { // wait for modules
+  setTimeout(accept, 0);
+});
+// console.log('run start 3');
 ['onStart', 'onUpdate'].forEach(m => {
   for (const entry of result) {
     const {method, args} = entry;
@@ -94,6 +132,10 @@ timeoutQueue.length = 0;
     }
   });
 } */
+
+await new Promise((accept, reject) => {
+  setTimeout(accept, 5000);
+});
 loaded = true;
 
 console.log('done');
