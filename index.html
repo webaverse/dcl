@@ -133,7 +133,7 @@ const COLOR_BY_TYPE = {
   const orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.screenSpacePanning = true;
   orbitControls.enableMiddleZoom = false;
-  orbitControls.target.set(-12*16, 0*16);
+  orbitControls.target.set(-16*16, 0, 4*16);
   orbitControls.update();
   
   const floorMesh = (() => {
@@ -180,82 +180,83 @@ const COLOR_BY_TYPE = {
   const _loadCoord = (x, z, coord) => {
     console.log('load coord', coord);
 
-    let {metadata: {main}, content, pointers} = coord;
-    // console.log('loaded', coord);
-    const mainFile = content.find(f => f.file === main);
-    const {hash} = mainFile;
-    pointers = _parsePointers(pointers);
-    const maxCoord = (() => {
-      const result = [-Infinity, -Infinity];
-      for (const [x, z] of pointers) {
-        result[0] = Math.max(x, result[0]);
-        result[1] = Math.max(z, result[1]);
-      }
-      return result;
-    })();
-    console.log('max coord', maxCoord);
-
     const object = new THREE.Object3D();
-    object.matrix.copy(inversionMatrix)
-      .decompose(object.position, object.quaternion, object.scale);
-    object.position.x = (maxCoord[0]+0.5)*16;
-    object.position.z = -(maxCoord[1]+0.5)*16;
-    
-    const cubeMesh = (() => {
-      const geometry = new THREE.BoxBufferGeometry(1, 1);
-      const material = new THREE.MeshBasicMaterial({
-        color: 0xFFFF00,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.frustumCulled = false;
-      mesh.position.x = (maxCoord[0]+0.5)*16;
-      mesh.position.y = 0.5;
-      mesh.position.z = -(maxCoord[1]+0.5)*16;
-      return mesh;
-    })();
-    object.add(cubeMesh);
-    
-    const manager = new THREE.LoadingManager();
-    manager.setURLModifier(url => {
-      // const u = (() => {
-        if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q')) {
-          return url;
-        } else {
-          const u = 'unity_assets/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
-          const file = content.find(f => f.file === u);
-          if (file) {
-            const {hash} = file;
-            return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
-          } else {
-            console.warn('content not found', url);
-            return url;
-          }
-        }
-      // })();
-      // console.log('load', [url, u]);
-      // return u;
-    });
-    const _loadGltf = async u => {
-      let o = await new Promise((accept, reject) => {
-        new GLTFLoader(manager).load(u, accept, function onprogress() {}, reject);
-      });
-      o = o.scene;
-      return o;
-    };
-    const _loadGltfCached = (() => {
-      const cache = {};
-      return async u => {
-        let entry = cache[u];
-        if (!entry) {
-          entry = await _loadGltf(u);
-          cache[u] = entry;
-        }
-        return entry.clone();
-      };
-    })();
-    
+
     let live = true;
-    const promise = (async() => {
+    const promise = coord ? (async() => {
+      let {metadata: {main}, content, pointers} = coord;
+      // console.log('loaded', coord);
+      const mainFile = content.find(f => f.file === main);
+      const {hash} = mainFile;
+      pointers = _parsePointers(pointers);
+      const maxCoord = (() => {
+        const result = [-Infinity, -Infinity];
+        for (const [x, z] of pointers) {
+          result[0] = Math.max(x, result[0]);
+          result[1] = Math.max(z, result[1]);
+        }
+        return result;
+      })();
+      console.log('max coord', maxCoord);
+
+      object.matrix.copy(inversionMatrix)
+        .decompose(object.position, object.quaternion, object.scale);
+      object.position.x = (maxCoord[0]+0.5)*16;
+      object.position.z = -(maxCoord[1]+0.5)*16;
+      
+      const cubeMesh = (() => {
+        const geometry = new THREE.BoxBufferGeometry(1, 1);
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xFFFF00,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.frustumCulled = false;
+        mesh.position.x = (maxCoord[0]+0.5)*16;
+        mesh.position.y = 0.5;
+        mesh.position.z = -(maxCoord[1]+0.5)*16;
+        return mesh;
+      })();
+      object.add(cubeMesh);
+      
+      const manager = new THREE.LoadingManager();
+      manager.setURLModifier(url => {
+        // const u = (() => {
+          if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q')) {
+            return url;
+          } else {
+            const u = 'unity_assets/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
+            const file = content.find(f => f.file === u);
+            if (file) {
+              const {hash} = file;
+              return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
+            } else {
+              console.warn('content not found', url);
+              return url;
+            }
+          }
+        // })();
+        // console.log('load', [url, u]);
+        // return u;
+      });
+      const _loadGltf = async u => {
+        let o = await new Promise((accept, reject) => {
+          new GLTFLoader(manager).load(u, accept, function onprogress() {}, reject);
+        });
+        o = o.scene;
+        return o;
+      };
+      const _loadGltfCached = (() => {
+        const cache = {};
+        return async u => {
+          let entry = cache[u];
+          if (!entry) {
+            entry = await _loadGltf(u);
+            cache[u] = entry;
+          }
+          return entry.clone();
+        };
+      })();
+    
       const j = await new Promise((accept, reject) => {
         const worker = new Worker('./worker.js?hash=' + hash);
         worker.onmessage = async e => {
@@ -440,7 +441,7 @@ const COLOR_BY_TYPE = {
       }
 
       console.log('done');
-    })();
+    })() : Promise.resolve();
     const cancel = () => {
       live = false;
     };
