@@ -29,6 +29,12 @@ const inversionMatrix = new THREE.Matrix4();
 // console.log('inversion', inversionMatrix);
 // const inversionMatrix = new THREE.Matrix4().fromArray([-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
+const _getTiles = async () => {
+  const res = await fetch('https://api.decentraland.org/v1/tiles');
+  const j = await res.json();
+  const {data} = j;
+  return data;
+};
 const _getCoord = async (x, z) => {
   const res = await fetch('https://peer-ec1.decentraland.org/content/entities/scene?pointer=' + [x,z].join(','));
   const j = await res.json();
@@ -36,6 +42,47 @@ const _getCoord = async (x, z) => {
 };
 
 (async () => {
+  const _getTilesCanvas = async () => {
+    const tiles = await _getTiles();
+    console.log('got tiles', tiles);
+    const canvas = document.createElement('canvas');
+    const size = 301*10;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#18141a';
+    ctx.fillRect(0, 0, size, size);
+    // document.body.appendChild(canvas);
+    
+    ctx.fillStyle = '#3d3a46';
+    
+    const _snap = n => n;//Math.floor(n);
+
+    const boxSize = size/301;
+    for (let x = -150; x <= 150; x++) {
+      for (let z = -150; z <= 150; z++) {
+        // ctx.fillStyle = '#3d3a46';
+        ctx.fillRect(_snap(boxSize*(x+150) + boxSize*0.1), _snap(boxSize*(z+150) + boxSize*0.1), _snap(boxSize*0.8), _snap(boxSize*0.8));
+        const tile = tiles[[x,-z].join(',')];
+        let {top, left, topLeft} = tile;
+        // topLeft = false;
+        if (top) {
+          ctx.fillRect(_snap(boxSize*(x+150) + boxSize*0.1), _snap(boxSize*(z+150) - boxSize*0.1), _snap(boxSize*0.8), _snap(boxSize*0.2));
+        }
+        if (left) {
+          ctx.fillRect(_snap(boxSize*(x+150) - boxSize*0.1), _snap(boxSize*(z+150) + boxSize*0.1), _snap(boxSize*0.2), _snap(boxSize*0.8));
+        }
+        if (left && top && topLeft) {
+          // ctx.fillStyle = '#FF0000';        
+          ctx.fillRect(_snap(boxSize*(x+150) - boxSize*0.1), _snap(boxSize*(z+150) - boxSize*0.1), _snap(boxSize*0.2), _snap(boxSize*0.2));
+        }
+      }
+    }
+    return canvas;
+  };
+  const tilesCanvas = await _getTilesCanvas();
+
   const coord = await _getCoord(21, 34);
   const {metadata: {main}, content} = coord;
   console.log('loaded', coord);
@@ -77,6 +124,26 @@ const _getCoord = async (x, z) => {
     orbitControls.enableMiddleZoom = false;
     // orbitControls.target.copy(camera.position).add(new THREE.Vector3(0, camera.position.y, -3).applyQuaternion(camera.quaternion));
     orbitControls.update();
+    
+    renderer.setAnimationLoop(() => {
+      orbitControls.update();
+      renderer.render(scene, camera);
+    });
+    
+    const floorMesh = (() => {
+      const geometry = new THREE.PlaneBufferGeometry(301*16, 301*16)
+        .applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2)));
+      const texture = new THREE.Texture(tilesCanvas);
+      texture.needsUpdate = true;
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.y = -0.1;
+      mesh.frustumCulled = false;
+      return mesh;
+    })();
+    scene.add(floorMesh);
 
     const manager = new THREE.LoadingManager();
     manager.setURLModifier(url => {
@@ -276,12 +343,7 @@ const _getCoord = async (x, z) => {
       }
     }
 
-    console.log('rendering...');
-
-    renderer.setAnimationLoop(() => {
-      orbitControls.update();
-      renderer.render(scene, camera);
-    });
+    console.log('done');
   };
 })();
 </script>
