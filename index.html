@@ -44,7 +44,7 @@ const _getCoord = async (x, z) => {
 (async () => {
   const _getTilesCanvas = async () => {
     const tiles = await _getTiles();
-    console.log('got tiles', tiles);
+    // console.log('got tiles', JSON.stringify(tiles, null, 2));
     const canvas = document.createElement('canvas');
     const size = 301*10;
     canvas.width = size;
@@ -86,10 +86,20 @@ const _getCoord = async (x, z) => {
   const x = 21;
   const z = 34;
   const coord = await _getCoord(x, z);
-  const {metadata: {main}, content} = coord;
+  let {metadata: {main}, content, pointers} = coord;
   console.log('loaded', coord);
   const mainFile = content.find(f => f.file === main);
   const {hash} = mainFile;
+  pointers = pointers.map(pointer => pointer.split(',').map(s => parseInt(s, 10)));
+  const maxCoord = (() => {
+    const result = [-Infinity, -Infinity];
+    for (const [x, z] of pointers) {
+      result[0] = Math.max(x, result[0]);
+      result[1] = Math.max(z, result[1]);
+    }
+    return result;
+  })();
+  console.log('max coord', maxCoord);
 
   const worker = new Worker('./worker.js?hash=' + hash);
   worker.onmessage = async e => {
@@ -194,9 +204,9 @@ const _getCoord = async (x, z) => {
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.frustumCulled = false;
-      mesh.position.x = x*16;
+      mesh.position.x = (maxCoord[0]+0.5)*16;
       mesh.position.y = 0.5;
-      mesh.position.z = -z*16;
+      mesh.position.z = -(maxCoord[1]+0.5)*16;
       return mesh;
     })();
     scene.add(cubeMesh);
@@ -212,8 +222,8 @@ const _getCoord = async (x, z) => {
           if (id === '0') {
             entity.matrix.copy(inversionMatrix)
              .decompose(entity.position, entity.quaternion, entity.scale);
-            entity.position.x = x*16;
-            entity.position.z = -z*16;
+            entity.position.x = (maxCoord[0]+0.5)*16;
+            entity.position.z = -(maxCoord[1]+0.5)*16;
             scene.add(entity);
           }
           entities[id] = entity;
