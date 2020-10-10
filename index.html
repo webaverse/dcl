@@ -102,9 +102,20 @@ const _getCoord = async (x, z) => {
       let o = await new Promise((accept, reject) => {
         new GLTFLoader(manager).load(u, accept, function onprogress() {}, reject);
       });
-      // o = o.scene;
+      o = o.scene;
       return o;
     };
+    const _loadGltfCached = (() => {
+      const cache = {};
+      return async u => {
+        let entry = cache[u];
+        if (!entry) {
+          entry = await _loadGltf(u);
+          cache[u] = entry;
+        }
+        return entry.clone();
+      };
+    })();
 
     const entities = {};
     const components = {};
@@ -237,10 +248,9 @@ const _getCoord = async (x, z) => {
             if (srcFile) {
               const {hash} = srcFile;
               try {
-                let model = await _loadGltf('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
+                let model = await _loadGltfCached('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash);
                 console.log('got model', id, model);
                 // model.rotation.z += Math.PI;
-                model = model.scene;
                 // const box = new THREE.Box3().setFromObject(model);
                 // model.position.sub(box.getCenter(new THREE.Vector3()));
                 model.matrix.copy(inversionMatrix)
