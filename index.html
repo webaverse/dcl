@@ -124,145 +124,145 @@ const COLOR_BY_TYPE = {
     return result;
   })();
   console.log('max coord', maxCoord);
+  
+  const renderer = new THREE.WebGLRenderer();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  document.body.appendChild(renderer.domElement);
+  window.addEventListener('resize', e => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  const scene = new THREE.Scene();
+  window.scene = scene;
+
+  const camera = new THREE.PerspectiveCamera(90, window.innerWidth/window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 10, 10);
+  camera.lookAt(new THREE.Vector3());
+
+  const ambientLight = new THREE.AmbientLight(0x808080);
+  scene.add(ambientLight);
+  const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 1);
+  directionalLight.position.set(1, 2, 3);
+  scene.add(directionalLight);
+
+  const orbitControls = new OrbitControls(camera, renderer.domElement);
+  orbitControls.screenSpacePanning = true;
+  orbitControls.enableMiddleZoom = false;
+  // orbitControls.target.copy(camera.position).add(new THREE.Vector3(0, camera.position.y, -3).applyQuaternion(camera.quaternion));
+  orbitControls.update();
+  
+  const floorMesh = (() => {
+    const geometry = new THREE.PlaneBufferGeometry(301*16, 301*16)
+      .applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2)));
+    const texture = new THREE.Texture(tilesCanvas);
+    texture.needsUpdate = true;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = -0.1;
+    mesh.frustumCulled = false;
+    return mesh;
+  })();
+  scene.add(floorMesh);
+  
+  const cubeMesh = (() => {
+    const geometry = new THREE.BoxBufferGeometry(1, 1);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xFF0000,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    mesh.position.x = (maxCoord[0]+0.5)*16;
+    mesh.position.y = 0.5;
+    mesh.position.z = -(maxCoord[1]+0.5)*16;
+    return mesh;
+  })();
+  scene.add(cubeMesh);
+  
+  const tileGeometry = new THREE.PlaneBufferGeometry(16, 16)
+    .applyMatrix4(new THREE.Matrix4().makeScale(0.8, 0.8, 0.8))
+    .applyMatrix4(new THREE.Matrix4().makeTranslation(16/2, -16/2, 0))
+    .applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2)))
+  const tileMaterial = new THREE.MeshBasicMaterial({
+    color: 0x0000FF,
+    transparent: true,
+    opacity: 0.5,
+  });
+  const tileMaterialRed = new THREE.MeshBasicMaterial({
+    color: 0xFF0000,
+    transparent: true,
+    opacity: 0.5,
+  });
+  
+  class Tracker {
+    constructor() {
+      this.lastCoord = new THREE.Vector2();
+      this.meshes = [];
+      this.running = false;
+      this.queue = null;
+    }
+    async update(position) {
+      const currentCoord = new THREE.Vector2(Math.floor((position.x+8)/16), Math.floor((position.z+8)/16));
+      if (!currentCoord.equals(this.lastCoord)) {
+        // console.log('neq', currentCoord.toArray(), this.lastCoord.toArray());
+        if (!this.running) {
+          this.running = true;
+        
+          for (const mesh of this.meshes) {
+            scene.remove(mesh);
+          }
+          this.meshes.length = 0;
+          
+          const coord = await _getCoord(currentCoord.x, -currentCoord.y);
+          let pointers;
+          if (coord) {
+            pointers = _parsePointers(coord.pointers);
+          } else {
+            pointers = [[currentCoord.x, -currentCoord.y]];
+          }
+          for (const pointer of pointers) {
+            const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
+            mesh.position.x = 16*pointer[0]-8;
+            mesh.position.y = 1;
+            mesh.position.z = -16*pointer[1]-8;
+            mesh.frustumCulled = false;
+            scene.add(mesh);
+            // window.mesh = mesh;
+            this.meshes.push(mesh);
+          }
+
+          this.running = false;
+          if (this.queue) {
+            const position = this.queue;
+            this.queue = null
+            this.update(position);
+          }
+        } else {
+          this.queue = position.clone();
+        }
+        this.lastCoord.copy(currentCoord);
+      }
+    }
+  }
+  const tracker = new Tracker();
+  
+  renderer.setAnimationLoop(() => {
+    orbitControls.update();
+
+    cubeMesh.position.copy(orbitControls.target);
+    tracker.update(orbitControls.target);
+
+    renderer.render(scene, camera);
+  });
 
   const worker = new Worker('./worker.js?hash=' + hash);
   worker.onmessage = async e => {
     const j = JSON.parse(e.data);
     worker.terminate();
-
-    const renderer = new THREE.WebGLRenderer();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    document.body.appendChild(renderer.domElement);
-    window.addEventListener('resize', e => {
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      camera.aspect = window.innerWidth/window.innerHeight;
-      camera.updateProjectionMatrix();
-    });
-
-    const scene = new THREE.Scene();
-    window.scene = scene;
-
-    const camera = new THREE.PerspectiveCamera(90, window.innerWidth/window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 10, 10);
-    camera.lookAt(new THREE.Vector3());
-
-    const ambientLight = new THREE.AmbientLight(0x808080);
-    scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 1);
-    directionalLight.position.set(1, 2, 3);
-    scene.add(directionalLight);
-
-    const orbitControls = new OrbitControls(camera, renderer.domElement);
-    orbitControls.screenSpacePanning = true;
-    orbitControls.enableMiddleZoom = false;
-    // orbitControls.target.copy(camera.position).add(new THREE.Vector3(0, camera.position.y, -3).applyQuaternion(camera.quaternion));
-    orbitControls.update();
-    
-    const cubeMesh = (() => {
-      const geometry = new THREE.BoxBufferGeometry(1, 1);
-      const material = new THREE.MeshBasicMaterial({
-        color: 0xFF0000,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.frustumCulled = false;
-      mesh.position.x = (maxCoord[0]+0.5)*16;
-      mesh.position.y = 0.5;
-      mesh.position.z = -(maxCoord[1]+0.5)*16;
-      return mesh;
-    })();
-    scene.add(cubeMesh);
-    
-    const tileGeometry = new THREE.PlaneBufferGeometry(16, 16)
-      .applyMatrix4(new THREE.Matrix4().makeScale(0.8, 0.8, 0.8))
-      .applyMatrix4(new THREE.Matrix4().makeTranslation(16/2, -16/2, 0))
-      .applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2)))
-    const tileMaterial = new THREE.MeshBasicMaterial({
-      color: 0x0000FF,
-      transparent: true,
-      opacity: 0.5,
-    });
-    const tileMaterialRed = new THREE.MeshBasicMaterial({
-      color: 0xFF0000,
-      transparent: true,
-      opacity: 0.5,
-    });
-    
-    class Tracker {
-      constructor() {
-        this.lastCoord = new THREE.Vector2();
-        this.meshes = [];
-        this.running = false;
-        this.queue = null;
-      }
-      async update(position) {
-        const currentCoord = new THREE.Vector2(Math.floor((position.x+8)/16), Math.floor((position.z+8)/16));
-        if (!currentCoord.equals(this.lastCoord)) {
-          // console.log('neq', currentCoord.toArray(), this.lastCoord.toArray());
-          if (!this.running) {
-            this.running = true;
-          
-            for (const mesh of this.meshes) {
-              scene.remove(mesh);
-            }
-            this.meshes.length = 0;
-            
-            const coord = await _getCoord(currentCoord.x, -currentCoord.y);
-            let pointers;
-            if (coord) {
-              pointers = _parsePointers(coord.pointers);
-            } else {
-              pointers = [[currentCoord.x, -currentCoord.y]];
-            }
-            for (const pointer of pointers) {
-              const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
-              mesh.position.x = 16*pointer[0]-8;
-              mesh.position.y = 1;
-              mesh.position.z = -16*pointer[1]-8;
-              mesh.frustumCulled = false;
-              scene.add(mesh);
-              // window.mesh = mesh;
-              this.meshes.push(mesh);
-            }
-
-            this.running = false;
-            if (this.queue) {
-              const position = this.queue;
-              this.queue = null
-              this.update(position);
-            }
-          } else {
-            this.queue = position.clone();
-          }
-          this.lastCoord.copy(currentCoord);
-        }
-      }
-    }
-    const tracker = new Tracker();
-    
-    renderer.setAnimationLoop(() => {
-      orbitControls.update();
-
-      cubeMesh.position.copy(orbitControls.target);
-      tracker.update(orbitControls.target);
-
-      renderer.render(scene, camera);
-    });
-    
-    const floorMesh = (() => {
-      const geometry = new THREE.PlaneBufferGeometry(301*16, 301*16)
-        .applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2)));
-      const texture = new THREE.Texture(tilesCanvas);
-      texture.needsUpdate = true;
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.y = -0.1;
-      mesh.frustumCulled = false;
-      return mesh;
-    })();
-    scene.add(floorMesh);
 
     const manager = new THREE.LoadingManager();
     manager.setURLModifier(url => {
