@@ -38,9 +38,28 @@ const _getTiles = async () => {
 const _getCoord = async (x, z) => {
   const res = await fetch('https://peer-ec1.decentraland.org/content/entities/scene?pointer=' + [x,z].join(','));
   const j = await res.json();
+  console.log('got coord', x, z, j);
   return j[0];
 };
 const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').map(s => parseInt(s, 10)));
+
+const COLOR_BY_TYPE = {
+  0: '#ff9990', // my parcels
+  1: '#ff4053', // my parcels on sale
+  2: '#ff9990', // my estates
+  3: '#ff4053', // my estates on sale
+  4: '#ffbd33', // parcels/estates where I have permissions
+  5: '#5054D4', // districts
+  6: '#563db8', // contributions
+  7: '#716C7A', // roads
+  8: '#70AC76', // plazas
+  9: '#3D3A46', // owned parcel/estate
+  10: '#3D3A46', // parcels on sale (we show them as owned parcels)
+  11: '#09080A', // unowned pacel/estate
+  12: '#18141a', // background
+  13: '#110e13', // loading odd
+  14: '#0d0b0e' // loading even
+};
 
 (async () => {
   const _getTilesCanvas = async () => {
@@ -64,9 +83,14 @@ const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').ma
     for (let x = -150; x <= 150; x++) {
       for (let z = -150; z <= 150; z++) {
         // ctx.fillStyle = '#3d3a46';
-        ctx.fillRect(_snap(boxSize*(x+150) + boxSize*0.1), _snap(boxSize*(z+150) + boxSize*0.1), _snap(boxSize*0.8), _snap(boxSize*0.8));
         const tile = tiles[[x,-z].join(',')];
-        let {top, left, topLeft} = tile;
+        let {top, left, topLeft, type} = tile;
+        const color = COLOR_BY_TYPE[type];
+        ctx.fillStyle = color;
+        
+        ctx.fillRect(_snap(boxSize*(x+150) + boxSize*0.1), _snap(boxSize*(z+150) + boxSize*0.1), _snap(boxSize*0.8), _snap(boxSize*0.8));
+        
+        // console.log('got color', type, color);
         // topLeft = false;
         if (top) {
           ctx.fillRect(_snap(boxSize*(x+150) + boxSize*0.1), _snap(boxSize*(z+150) - boxSize*0.1), _snap(boxSize*0.8), _snap(boxSize*0.2));
@@ -74,8 +98,7 @@ const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').ma
         if (left) {
           ctx.fillRect(_snap(boxSize*(x+150) - boxSize*0.1), _snap(boxSize*(z+150) + boxSize*0.1), _snap(boxSize*0.2), _snap(boxSize*0.8));
         }
-        if (left && top && topLeft) {
-          // ctx.fillStyle = '#FF0000';        
+        if (left && top && topLeft) {   
           ctx.fillRect(_snap(boxSize*(x+150) - boxSize*0.1), _snap(boxSize*(z+150) - boxSize*0.1), _snap(boxSize*0.2), _snap(boxSize*0.2));
         }
       }
@@ -159,6 +182,11 @@ const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').ma
       transparent: true,
       opacity: 0.5,
     });
+    const tileMaterialRed = new THREE.MeshBasicMaterial({
+      color: 0xFF0000,
+      transparent: true,
+      opacity: 0.5,
+    });
     
     class Tracker {
       constructor() {
@@ -180,7 +208,6 @@ const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').ma
             this.meshes.length = 0;
             
             const coord = await _getCoord(currentCoord.x, -currentCoord.y);
-            console.log('got coord', currentCoord.x, -currentCoord.y, coord);
             let pointers;
             if (coord) {
               pointers = _parsePointers(coord.pointers);
@@ -188,7 +215,7 @@ const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').ma
               pointers = [[currentCoord.x, -currentCoord.y]];
             }
             for (const pointer of pointers) {
-              const mesh = new THREE.Mesh(tileGeometry, tileMaterial);
+              const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
               mesh.position.x = 16*pointer[0]-8;
               mesh.position.y = 1;
               mesh.position.z = -16*pointer[1]-8;
