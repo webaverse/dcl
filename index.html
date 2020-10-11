@@ -41,7 +41,8 @@ const _getCoord = async (x, z) => {
   console.log('got coord', x, z, j);
   return j[0];
 };
-const _parsePointers = pointers => pointers.map(pointer => pointer.split(',').map(s => parseInt(s, 10)));
+const _parsePointer = pointer => pointer.split(',').map(s => parseInt(s, 10));
+const _parsePointers = pointers => pointers.map(pointer => _parsePointer(pointer));
 
 const COLOR_BY_TYPE = {
   0: '#ff9990', // my parcels
@@ -184,12 +185,13 @@ const COLOR_BY_TYPE = {
 
     let live = true;
     const promise = coord ? (async() => {
-      let {metadata: {main}, content, pointers} = coord;
+      let {metadata: {main, scene: {base}}, content, pointers} = coord;
       // console.log('loaded', coord);
       const mainFile = content.find(f => f.file === main);
       const {hash} = mainFile;
       pointers = _parsePointers(pointers);
-      const maxCoord = (() => {
+      base = _parsePointer(base);
+      /* const maxCoord = (() => {
         const result = [-Infinity, -Infinity];
         for (const [x, z] of pointers) {
           result[0] = Math.max(x, result[0]);
@@ -197,12 +199,14 @@ const COLOR_BY_TYPE = {
         }
         return result;
       })();
-      console.log('max coord', maxCoord);
+      console.log('max coord', maxCoord); */
 
       object.matrix.copy(inversionMatrix)
         .decompose(object.position, object.quaternion, object.scale);
-      object.position.x = (maxCoord[0]+0.5)*16;
-      object.position.z = -(maxCoord[1]+0.5)*16;
+      object.position.x = (base[0]-0.5)*16;
+      object.position.z = -(base[1]-0.5)*16;
+      object.rotation.order = 'YXZ';
+      object.rotation.y = Math.PI;
       
       const cubeMesh = (() => {
         const geometry = new THREE.BoxBufferGeometry(1, 1);
@@ -211,9 +215,9 @@ const COLOR_BY_TYPE = {
         });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.frustumCulled = false;
-        mesh.position.x = (maxCoord[0]+0.5)*16;
+        mesh.position.x = (base[0]+0.5)*16;
         mesh.position.y = 0.5;
-        mesh.position.z = -(maxCoord[1]+0.5)*16;
+        mesh.position.z = -(base[1]+0.5)*16;
         return mesh;
       })();
       object.add(cubeMesh);
@@ -230,6 +234,7 @@ const COLOR_BY_TYPE = {
               file = content.find(f => f.file === u);
               return !!file;
             });
+            console.log('got content', url, content, file);
             if (file) {
               const {hash} = file;
               return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
