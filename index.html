@@ -38,7 +38,7 @@ const _getTiles = async () => {
 const _getCoord = async (x, z) => {
   const res = await fetch('https://peer-ec1.decentraland.org/content/entities/scene?pointer=' + [x,z].join(','));
   const j = await res.json();
-  console.log('got coord', x, z, j);
+  // console.log('got coord', x, z, j);
   return j[0];
 };
 const _parsePointer = pointer => pointer.split(',').map(s => parseInt(s, 10));
@@ -182,6 +182,7 @@ const COLOR_BY_TYPE = {
     console.log('load coord', coord);
 
     const object = new THREE.Object3D();
+    let worker = null;
 
     let live = true;
     const promise = coord ? (async() => {
@@ -265,12 +266,15 @@ const COLOR_BY_TYPE = {
           return entry.clone();
         };
       })();
-    
+
       const j = await new Promise((accept, reject) => {
-        const worker = new Worker('./worker.js?hash=' + hash);
+        worker = new Worker('./worker.js?hash=' + hash);
         worker.onmessage = async e => {
-          worker.terminate();
-          const j = JSON.parse(e.data);
+          if (worker) {
+            worker.terminate();
+            worker = null;
+          }
+          const j = e.data && JSON.parse(e.data);
           accept(j);
         };
         worker.onerror = reject;
@@ -407,6 +411,8 @@ const COLOR_BY_TYPE = {
       }
 
       for (const id in entities) {
+        if (!live) return;
+      
         const entity = entities[id];
         /* if (entity.components.length === 0) {
           entity.position.set(0, 0, 0);
@@ -453,6 +459,12 @@ const COLOR_BY_TYPE = {
     })() : Promise.resolve();
     const cancel = () => {
       live = false;
+      console.log('cancel', !!worker);
+      if (worker) {
+        worker.onmessage(new MessageEvent('message', {
+          data: null,
+        }));
+      }
     };
     return {
       object,
@@ -472,78 +484,84 @@ const COLOR_BY_TYPE = {
       this.cancel = null;
     }
     async update(position) {
+      const currentCoord = new THREE.Vector2(Math.floor((position.x+8)/16), Math.floor((position.z+8)/16));
+      const {lastCoord} = this;
+      this.lastCoord = currentCoord;
+      if (!currentCoord.equals(lastCoord)) {
+        const coord = await _getCoord(currentCoord.x, -currentCoord.y);
+        
+        let currentScene;
+        if (coord) {
+          currentScene = coord.id;
+        } else {
+          currentScene = '';
+        }
+        const {lastScene} = this;
+        this.lastScene = currentScene;
+        if (currentScene !== lastScene) {
+          for (const mesh of this.meshes) {
+            scene.remove(mesh);
+          }
+          this.meshes.length = 0;
+          
+          let pointers;
+          if (coord) {
+            pointers = _parsePointers(coord.pointers);
+          } else {
+            pointers = [[currentCoord.x, -currentCoord.y]];
+          }
+          for (const pointer of pointers) {
+            const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
+            mesh.position.x = 16*pointer[0]-8;
+            mesh.position.y = 1;
+            mesh.position.z = -16*pointer[1]-8;
+            mesh.frustumCulled = false;
+            scene.add(mesh);
+            this.meshes.push(mesh);
+          }
+          // window.pointers = pointers;
+          // window.meshes = this.meshes;
+
+          this.load(currentCoord.x, -currentCoord.y, coord);
+        }
+      }
+    }
+    async load(x, z, coord) {
       if (!this.running) {
-        // console.log('start running');
         this.running = true;
 
-        const currentCoord = new THREE.Vector2(Math.floor((position.x+8)/16), Math.floor((position.z+8)/16));
-        const {lastCoord} = this;
-        this.lastCoord = currentCoord;
-        if (!currentCoord.equals(lastCoord)) {
-          const coord = await _getCoord(currentCoord.x, -currentCoord.y);
-          
-          let currentScene;
-          if (coord) {
-            currentScene = coord.id;
-          } else {
-            currentScene = '';
-          }
-          const {lastScene} = this;
-          this.lastScene = currentScene;
-          if (currentScene !== lastScene) {
-            if (this.cancel) {
-              this.cancel();
-              this.cancel = null;
-            }
-            for (const mesh of this.meshes) {
-              scene.remove(mesh);
-            }
-            this.meshes.length = 0;
-            
-            let pointers;
-            if (coord) {
-              pointers = _parsePointers(coord.pointers);
-            } else {
-              pointers = [[currentCoord.x, -currentCoord.y]];
-            }
-            for (const pointer of pointers) {
-              const mesh = new THREE.Mesh(tileGeometry, coord ? tileMaterial : tileMaterialRed);
-              mesh.position.x = 16*pointer[0]-8;
-              mesh.position.y = 1;
-              mesh.position.z = -16*pointer[1]-8;
-              mesh.frustumCulled = false;
-              scene.add(mesh);
-              this.meshes.push(mesh);
-            }
-            // window.pointers = pointers;
-            // window.meshes = this.meshes;
-
-            const o = _loadCoord(currentCoord.x, -currentCoord.y, coord);
-            if (this.rootMesh) {
-              scene.remove(this.rootMesh);
-              this.rootMesh = null;
-            }
-            scene.add(o.object);
-            this.rootMesh = o.object;
-            window.rootMesh = this.rootMesh;
-            this.cancel = () => {
-              console.log('cancel 2');
-              o.cancel();
-            };
-            await o.promise;
-          }
+        const o = _loadCoord(x, z, coord);
+        if (this.rootMesh) {
+          scene.remove(this.rootMesh);
+          this.rootMesh = null;
         }
+        scene.add(o.object);
+        this.rootMesh = o.object;
+        // window.rootMesh = this.rootMesh;
+        this.cancel = () => {
+          o.cancel();
+        };
+        await o.promise;
         
         // console.log('stop running');
         this.running = false;
         if (this.queue) {
-          console.log('re-queue');
-          const position = this.queue;
+          // console.log('re-queue');
+          const {x, z, coord} = this.queue;
           this.queue = null
-          this.update(position);
+          this.load(x, z, coord);
         }
       } else {
-        this.queue = position.clone();
+        this.queue = {
+          x,
+          z,
+          coord,
+        };
+        
+        if (this.cancel) {
+          this.cancel();
+          this.cancel = null;
+        }
       }
     }
   }
