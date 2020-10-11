@@ -134,7 +134,7 @@ const COLOR_BY_TYPE = {
   const orbitControls = new OrbitControls(camera, renderer.domElement);
   orbitControls.screenSpacePanning = true;
   orbitControls.enableMiddleZoom = false;
-  orbitControls.target.set(-16*16, 0, 4*16);
+  // orbitControls.target.set(-16*16, 0, 4*16);
   orbitControls.update();
   
   const floorMesh = (() => {
