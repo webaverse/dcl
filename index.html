@@ -229,7 +229,7 @@ const COLOR_BY_TYPE = {
       const manager = new THREE.LoadingManager();
       manager.setURLModifier(url => {
         // const u = (() => {
-          if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q') || url.startsWith('blob:')) {
+          if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q') || /^(?:blob:|data:)/.test(url)) {
             return url;
           } else {
             const _getFilename = u => {
