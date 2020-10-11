@@ -63,6 +63,7 @@ globalThis.dcl = {
 [
   'log',
   'addEntity',
+  'removeEntity',
   'onUpdate',
   'onEvent',
   'subscribe',
