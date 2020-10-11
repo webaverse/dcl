@@ -138,7 +138,7 @@ timeoutQueue.length = 0;
 } */
 
 await new Promise((accept, reject) => {
-  setTimeout(accept, 5000);
+  setTimeout(accept, 0);
 });
 loaded = true;
 
