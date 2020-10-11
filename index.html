@@ -224,8 +224,12 @@ const COLOR_BY_TYPE = {
           if (url.includes('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/Q')) {
             return url;
           } else {
-            const u = 'unity_assets/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
-            const file = content.find(f => f.file === u);
+            let file;
+            ['unity_assets', 'models'].some(prefix => {
+              const u = prefix + '/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
+              file = content.find(f => f.file === u);
+              return !!file;
+            });
             if (file) {
               const {hash} = file;
               return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
