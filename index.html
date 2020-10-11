@@ -324,7 +324,7 @@ const COLOR_BY_TYPE = {
             const [id, parentId] = args;
             const entity = entities[id];
             const parent = entities[parentId];
-            if (!parent) {
+            if (!parent || !entity) {
               debugger;
             }
             parent.add(entity);
