@@ -237,18 +237,21 @@ const COLOR_BY_TYPE = {
               return match[1] || '';
             };
             const filename = _getFilename(url);
-            const file = content.find(f => _getFilename(f.file) === filename);
-            /* ['unity_assets', 'models'].some(prefix => {
-              const u = prefix + '/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
-              file = content.find(f => f.file === u);
+            /* const file = content.find(f => _getFilename(f.file) === filename); */
+            let file;
+            ['unity_assets', 'models'].some(prefix => {
+              // const u = prefix + '/' + url.slice('https://peer-ec1.decentraland.org/lambdas/contentv2/contents/'.length);
+              file = content.find(f => {
+                return f.file.startsWith(prefix + '/') && _getFilename(f.file) === filename;
+              });
               return !!file;
-            }); */
+            });
             // console.log('got content', url, filename, content, file);
             if (file) {
               const {hash} = file;
               return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
             } else {
-              console.warn('content not found', url);
+              console.warn('content not found', url, content);
               return url;
             }
           }
