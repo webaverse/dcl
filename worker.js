@@ -44,6 +44,10 @@ globalThis.dcl = {
           console.log('run module getCurrentRealm');
           debugger;
         },
+        getBootstrapData() {
+          console.log('run module getBootstrapData');
+          debugger;
+        },
       },
     });
   },
