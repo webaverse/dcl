@@ -23,10 +23,11 @@ const _bind = method => function() {
     debugger;
   }
 };
+const loadPromises = [];
 globalThis.dcl = {
   loadModule() {
     console.log('load module', Array.from(arguments));
-    return Promise.resolve({
+    const p = Promise.resolve({
       methods: {
         getUserData() {
           console.log('run module getUserData');
@@ -50,6 +51,8 @@ globalThis.dcl = {
         },
       },
     });
+    loadPromises.push(p);
+    return p;
   },
   callRpc() {
     return new Promise((accept, reject) => {
@@ -102,8 +105,9 @@ globalThis.setInterval = fn => {
 // console.log('run start 1', text);
 eval(text);
 // console.log('run start 2');
+await Promise.all(loadPromises);
 await new Promise((accept, reject) => { // wait for modules
-  setTimeout(accept, 0);
+  setTimeout(accept);
 });
 // console.log('run start 3');
 ['onStart', 'onUpdate'].forEach(m => {
