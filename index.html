@@ -243,7 +243,7 @@ const COLOR_BY_TYPE = {
               file = content.find(f => f.file === u);
               return !!file;
             }); */
-            console.log('got content', url, filename, content, file);
+            // console.log('got content', url, filename, content, file);
             if (file) {
               const {hash} = file;
               return 'https://peer-ec1.decentraland.org/lambdas/contentv2/contents/' + hash;
