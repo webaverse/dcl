@@ -298,7 +298,7 @@ const COLOR_BY_TYPE = {
         entity.components = [];
         return entity;
       };
-      ['0', 'PlayerEntityReference'].forEach(name => {
+      ['0', 'PlayerEntityReference', 'FirstPersonCameraEntityReference'].forEach(name => {
         const entity = new THREE.Object3D();
         entities[name] = _makeEntity();
       });
